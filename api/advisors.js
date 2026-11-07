@@ -56,7 +56,7 @@ module.exports = async (req, res) => {
     const r = await fetch(ICS_URL, { headers: { 'User-Agent': 'natHacks-advisor-display' } });
     if (!r.ok) throw new Error('calendar responded ' + r.status);
     const shifts = parseICS(await r.text());
-    res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
+    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     res.status(200).json({ source: 'calendar', fetchedAt: new Date().toISOString(), shifts });
   } catch (err) {
     res.setHeader('Cache-Control', 'no-store');

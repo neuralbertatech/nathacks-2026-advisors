@@ -209,41 +209,45 @@ const pill = (wd, text) => { const c = dayColor(wd); return '<span class="pill" 
 function renderNow(t) {
   const on = new Map();
   shifts.filter(s => s.start <= t && t < s.end).forEach(s => on.set(s.name, Math.max(on.get(s.name) || 0, s.end)));
-  const future = shifts.filter(s => s.start > t);
+  const today = hm(t).key;
+  const future = shifts.filter(s => s.start > t && hm(s.start).key === today);
   let title, people;
   if (on.size) {
     title = 'natHacks Advisors: On Now';
-    people = [...on].map(([n, end]) => card(n, pill(hm(t).wd, 'Here until ' + at(end))));
+    people = [...on].map(([n, end]) => card(n, pill(hm(t).wd, 'Scheduled until ' + at(end))));
   } else if (future.length) {
     const first = future[0].start;
     const group = future.filter(s => s.start === first);
-    title = 'natHacks Advisors: Up Next, ' + hm(first).wd + ' ' + at(first);
+    title = 'natHacks Advisors: Up Next at ' + at(first);
     people = group.map(s => card(s.name, pill(hm(s.start).wd, hm(s.start).wd + ' ' + range(s.start, s.end))));
   } else {
-    title = 'natHacks Advisors';
-    people = ['<div class="empty">Advisor hours are over. Thanks for hacking!</div>'];
+    document.getElementById('liveNow').innerHTML = '';
+    return false;
   }
   const n = people.length, cls = n <= 2 ? 'c' + n : n <= 4 ? 'c4' : 'c5';
   const cols = n <= 2 ? n : n <= 4 ? 2 : 3;
   let nextTxt = '';
   if (on.size) {
     const nx = future.filter(s => !on.has(s.name));
-    if (nx.length) { const f = nx[0].start; nextTxt = '<div class="next">Next: <b>' + [...new Set(nx.filter(s => s.start === f).map(s => s.name))].map(esc).join(', ') + '</b> at ' + (hm(f).key === hm(t).key ? '' : hm(f).wd + ' ') + at(f) + '</div>'; }
+    if (nx.length) { const f = nx[0].start; nextTxt = '<div class="next">Next: <b>' + [...new Set(nx.filter(s => s.start === f).map(s => s.name))].map(esc).join(', ') + '</b> at ' + at(f) + '</div>'; }
   }
   document.getElementById('liveNow').innerHTML = BLOBS + '<h2>' + esc(title) + '</h2><div class="cards ' + cls + '" style="grid-template-columns:repeat(' + Math.max(cols, 1) + ',' + (n === 1 ? 'minmax(0,40cqw)' : '1fr') + ');justify-content:center">' + people.join('') + '</div>' + NOTE + nextTxt;
+  return true;
 }
 
 function renderSched(t) {
   const days = [];
+  const todayKey = hm(t).key;
   for (const s of shifts) {
     const d = hm(s.start);
+    if (d.key !== todayKey) continue;
     let day = days.find(x => x.key === d.key);
     if (!day) days.push(day = { key: d.key, label: d.day.replace(/^(\w+),/, (m, w) => ({ Sat: 'Saturday', Sun: 'Sunday', Mon: 'Monday', Fri: 'Friday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday' }[w] || w) + ','), wd: d.wd, rows: [] });
     let row = day.rows.find(r => r.name === s.name);
     if (!row) day.rows.push(row = { name: s.name, items: [] });
     row.items.push(s);
   }
-  const gantt = days.filter(d => d.rows.length > 2), lists = days.filter(d => d.rows.length <= 2);
+  const gantt = days, lists = [];
   const today = hm(t).key;
   const cards = gantt.map((d, i) => {
     const lo = Math.floor(Math.min(...d.rows.flatMap(r => r.items.map(s => hourOf(s.start)))));
@@ -263,10 +267,14 @@ function renderSched(t) {
     const extra = i === gantt.length - 1 ? lists.map(l => '<div class="list"><span class="lh" style="color:' + dayColor(l.wd).h + '">' + esc(l.label) + '</span><br>' + l.rows.map(r => '<b>' + esc(r.name) + '</b> ' + r.items.map(s => range(s.start, s.end)).join(' and ')).join('<br>') + '</div>').join('') : '';
     return '<div class="card"><div class="dh" style="color:' + col.h + '">' + esc(d.label) + '</div><div class="gantt" style="--lw:' + (gantt.length > 1 ? '15cqw' : '18cqw') + ';--fs:' + (d.rows.length > 6 ? '1.15cqw' : '1.25cqw') + '"><div class="ticks">' + ticks + '</div><div class="rows">' + grid + nowLine + rows + '</div></div>' + extra + '</div>';
   });
-  document.getElementById('liveSched').innerHTML = BLOBS + '<h2>natHacks Advisor Schedule</h2><div class="sched" style="grid-template-columns:repeat(' + Math.max(cards.length, 1) + ',1fr)">' + cards.join('') + '</div>' + NOTE;
+  const body = cards.length ? cards.join('') : '<div class="card"><div class="empty" style="margin:auto">No advisors scheduled today.</div></div>';
+  document.getElementById('liveSched').innerHTML = BLOBS + '<h2>natHacks Advisor Schedule: Today</h2><div class="sched" style="grid-template-columns:minmax(0,62cqw);justify-content:center">' + body + '</div>' + NOTE;
 }
 
-function renderLive() { const t = Date.now(); renderNow(t); renderSched(t); document.getElementById('mDot').classList.toggle('ok', liveOK); document.getElementById('mLive').title = liveOK ? 'Live from the advisor Google Calendar' : 'Calendar not reachable: showing the saved schedule'; }
+function renderLive() {
+  const t = Date.now(); const hasNow = renderNow(t); renderSched(t);
+  const want = hasNow ? [liveNowEl, liveSchedEl] : [liveSchedEl];
+  if (want.length !== lives.length) { lives = want; if (mode === 'live') { const keep = set[cur]; setMode('live', true); go(Math.max(0, lives.indexOf(keep))); } } document.getElementById('mDot').classList.toggle('ok', liveOK); document.getElementById('mLive').title = liveOK ? 'Live from the advisor Google Calendar' : 'Calendar not reachable: showing the saved schedule'; }
 async function loadAdvisors() {
   try {
     const r = await fetch('/api/advisors', { cache: 'no-store' });
@@ -279,32 +287,33 @@ async function loadAdvisors() {
 
 /* ---------- carousel with two modes ---------- */
 const imgs = [...document.querySelectorAll('#stage img')];
-const lives = [document.getElementById('liveNow'), document.getElementById('liveSched')];
+const liveNowEl = document.getElementById('liveNow'), liveSchedEl = document.getElementById('liveSched');
+let lives = [liveNowEl, liveSchedEl];
 const dots = document.getElementById('dots');
 const mSlides = document.getElementById('mSlides'), mLive = document.getElementById('mLive');
 let mode = 'slides', set = imgs, cur = 0;
 try { mode = new URLSearchParams(location.search).get('mode') || localStorage.getItem('advisorMode') || 'slides'; } catch (e) {}
 function go(i) {
   cur = (i + set.length) % set.length;
-  [...imgs, ...lives].forEach(el => el.classList.toggle('on', set[cur] === el));
+  [...imgs, liveNowEl, liveSchedEl].forEach(el => el.classList.toggle('on', set[cur] === el));
   [...dots.children].forEach((d, j) => d.classList.toggle('on', j === cur));
 }
-function setMode(m) {
+function setMode(m, keep) {
   mode = m === 'live' ? 'live' : 'slides';
   set = mode === 'live' ? lives : imgs;
   try { localStorage.setItem('advisorMode', mode); } catch (e) {}
   mSlides.setAttribute('aria-pressed', mode === 'slides'); mLive.setAttribute('aria-pressed', mode === 'live');
   dots.innerHTML = '';
   set.forEach((_, i) => { const b = document.createElement('button'); b.setAttribute('aria-label', 'Slide ' + (i + 1)); b.onclick = e => { e.stopPropagation(); go(i); }; dots.append(b); });
-  go(0);
+  if (!keep) go(0);
 }
 mSlides.onclick = e => { e.stopPropagation(); setMode('slides'); };
 mLive.onclick = e => { e.stopPropagation(); setMode('live'); };
 addEventListener('keydown', e => { if (e.key === 'ArrowRight' || e.key === ' ') { go(cur + 1) } if (e.key === 'ArrowLeft') { go(cur - 1) } if (e.key === 'f') document.documentElement.requestFullscreen?.(); if (e.key === 'm') setMode(mode === 'live' ? 'slides' : 'live'); });
 document.getElementById('stage').addEventListener('click', () => { go(cur + 1) });
-renderLive(); setMode(mode); loadAdvisors();
+setMode(mode); renderLive(); loadAdvisors();
 setInterval(renderLive, 30000);
-setInterval(loadAdvisors, 120000);
+setInterval(loadAdvisors, 60000);
 </script>
 </body>
 </html>
